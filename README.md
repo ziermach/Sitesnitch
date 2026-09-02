@@ -132,7 +132,8 @@ import { defineConfig } from 'sitesnitch';
 
 export default defineConfig({
   baseUrl: 'https://example.com',
-  forbiddenHosts: ['staging.example.com', 'dev.example.com'],
+  forbiddenHosts: ['staging.example.com', '*.internal.example.com'],
+  disabledChecks: ['accessibility'],
   locales: ['en', 'de'],
   excludePaths: ['/blog'],
 });
@@ -144,6 +145,7 @@ Then:
 npx sitesnitch                                 # full site
 npx sitesnitch --locales en --max-pages 20     # ~1 min smoke run
 npx sitesnitch --only forbidden-hosts          # hunt leaks only — minutes, not an hour
+npx sitesnitch --skip accessibility            # everything except one check
 npx sitesnitch --only llms-txt                 # check llms.txt links, skip the crawl
 npx sitesnitch --priority P0                   # report only critical findings
 npx sitesnitch --help                          # every flag
@@ -152,8 +154,9 @@ npx sitesnitch-report                          # serve the last report at 127.0.
 
 Two levers that are easy to confuse:
 
-- `--only <checks>` controls what work is **done**. `--only forbidden-hosts` skips link
-  probing entirely and finishes in minutes. This is how you make a run cheap.
+- `--only <checks>` and `--skip <checks>` control what work is **done**. `--only
+  forbidden-hosts` skips link probing entirely and finishes in minutes; `--skip
+  accessibility` runs everything else. This is how you make a run cheap.
 - `--rules` / `--priority` / `--category` control what is **reported**. The crawl still runs
   in full — a P0 `server-error` is only knowable by fetching the page — they just cut noise.
 
@@ -180,16 +183,35 @@ were no 429s.** The server never asked it to slow down; it just stopped answerin
 expect a rate-limit response to protect you. `perOriginConcurrency` is the number that
 matters — a global cap protects nothing when nearly every URL is on one host.
 
-**Keep `forbiddenHosts` precise.** List exact hosts. Broad wildcards like `dev.*` will flag
-`dev.to` and `dev.mysql.com` as leaked internal environments, and a check that cries wolf
-about MySQL's documentation is a check people learn to ignore — which is fatal for the one
-finding here that must never be ignored.
+**Keep `forbiddenHosts` precise.** `*` is a glob — it stands for any run of characters,
+anywhere in the pattern and as often as you like:
+
+| pattern | matches |
+| --- | --- |
+| `dev.example.com` | that host, exactly |
+| `*.internal.example.com` | any subdomain, and `internal.example.com` itself |
+| `staging.*` | `staging.example.com`, and bare `staging` |
+| `staging-*` | `staging-01`, `staging-eu.example.com` |
+| `*-api.example.com` | `eu-api.example.com` |
+| `*.example.*` | the same internal site across every TLD you own |
+| `a.*.example.com` | a wildcard in the middle |
+| `*staging*` | a genuine substring match — you have to ask for it |
+
+Patterns are **anchored at both ends**, which is the point: `staging.*` does not match
+`not-staging.example.com`, and `*.example.com` does not match
+`cdn.example.com.evil.test`. A pattern with no literal content (`*`, `*.*`) is rejected
+outright — it would flag every host on the internet.
+
+Prefer exact hosts anyway. Broad wildcards like `dev.*` will flag `dev.to` and
+`dev.mysql.com` as leaked internal environments, and a check that cries wolf about MySQL's
+documentation is a check people learn to ignore — which is fatal for the one finding here
+that must never be ignored.
 
 ## Development
 
 ```bash
 npm install
-npm test          # 104 tests, ~3s
+npm test          # 115 tests, ~3s
 npm run lint      # eslint (type-aware) + tsc
 npm run check     # both — run this before committing
 npm run build     # emit dist/

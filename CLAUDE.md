@@ -20,8 +20,10 @@ npm run crawl -- --list-rules                # every rule, with priority and cat
 
 Two different levers, easy to confuse:
 
-- `--only <checks>` controls what work is **done**. `--only forbidden-hosts` skips link
-  probing entirely and finishes in minutes — this is how you make a run cheap.
+- `--only <checks>` and `--skip <checks>` control what work is **done**. `--only
+  forbidden-hosts` skips link probing entirely and finishes in minutes — this is how you
+  make a run cheap. `--only` is the allowlist, `--skip` the denylist; `--skip` is applied
+  last and wins, so "everything except X" means that however X got into the list.
 - `--rules` / `--priority` / `--category` control what is **reported**. The crawl still runs
   in full (a P0 `server-error` is only knowable by fetching the page); they just cut the
   noise.
@@ -138,6 +140,17 @@ protects nothing when nearly every URL is on one host. Two invariants:
   request ever being sent — the phantom-timeout bug, reintroduced.
 
 The crawl being slow is not a problem. The crawl hurting the site is.
+
+**Host patterns are anchored globs, and that is load-bearing.** `hostMatches()` in
+`src/url.ts` compiles `*` to `.*` between escaped literals and anchors the result at both
+ends. The anchoring is the whole reason it is not a substring search: unanchored,
+`*.example.com` would match `cdn.example.com.evil.test` and `staging.*` would match
+`not-staging.example.com`, and the forbidden-host check would start accusing production
+hosts. A caller who wants loose matching has to write `*staging*` explicitly.
+`resolveConfig()` rejects a pattern with no literal content (`*`, `*.*`) — it matches every
+host on the internet, which turns every link and request on the site into an error and gets
+the whole report ignored. Compiled patterns are cached in a module-level Map because
+`hostMatches` runs millions of times per crawl over a handful of patterns.
 
 **Defaults must be safe for a stranger's site.** `baseUrl` has no default and
 `resolveConfig()` rejects an empty one — a crawler pointed somewhere arbitrary by accident

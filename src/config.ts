@@ -60,8 +60,11 @@ export interface CrawlerConfig {
   respectRobots: boolean;
   /**
    * Hosts that must never appear in production output — your own staging and dev
-   * environments. Supports leading-wildcard patterns ('*.local') and trailing-wildcard
-   * patterns ('staging.*').
+   * environments. Glob patterns: `*` stands for any run of characters, anywhere in the
+   * pattern and as often as you like — '*.local', 'staging.*', 'staging-*',
+   * '*-api.example.com', '*.example.*', 'a.*.example.com'. Patterns are anchored at both
+   * ends, so 'staging.*' does not match 'not-staging.example.com'; write '*staging*' if you
+   * genuinely want a substring match. See hostMatches() in url.ts.
    *
    * This is the check the tool exists for, and it is the one you must configure: nobody
    * else can know what your internal hostnames are. See DEFAULT_CONFIG for why the
@@ -100,6 +103,17 @@ export interface CrawlerConfig {
    * and still makes the run cheap.
    */
   customChecks: CustomCheck[];
+  /**
+   * Checks NOT to run, subtracted from `checks` after everything else is resolved.
+   *
+   * `checks` is an allowlist and answers "run only these". This is the denylist, and
+   * answers the far more common "run everything except this one" — without it, switching
+   * off a single noisy check means writing out the other ten and then remembering to come
+   * back and edit that list every time a new check ships.
+   *
+   * Applied last, so it wins over `checks` and over the ids `customChecks` contributes.
+   */
+  disabledChecks: CheckId[];
   /**
    * Report only these specific rules / priorities / categories. Empty means "all".
    *
@@ -318,6 +332,7 @@ export const DEFAULT_CONFIG: CrawlerConfig = {
 
   checks: ALL_CHECKS,
   customChecks: [],
+  disabledChecks: [],
   rules: [],
   priorities: [],
   categories: [],
@@ -374,6 +389,19 @@ export function resolveConfig(options: CrawlerOptions): ResolvedConfig {
     throw new Error(`baseUrl must be http(s), got: ${config.baseUrl}`);
   }
 
+  // A pattern with no literal content — '*', '**', '*.*' — matches every host there is,
+  // which would turn every link, asset and request on the site into a forbidden-host error.
+  // That is never what anyone meant, and the failure mode is a report so loud it gets
+  // ignored, taking the genuine leaks down with it.
+  for (const pattern of [...config.forbiddenHosts, ...config.localhostHosts]) {
+    if (pattern.replace(/[*.]/g, '') === '') {
+      throw new Error(
+        `Host pattern '${pattern}' matches every host. Name the environments you actually ` +
+          "own, e.g. 'staging.example.com' or '*.internal.example.com'.",
+      );
+    }
+  }
+
   const customIds = config.customChecks.map((c) => c.id);
 
   const collision = customIds.find((id) => (ALL_CHECKS as string[]).includes(id));
@@ -390,11 +418,35 @@ export function resolveConfig(options: CrawlerOptions): ResolvedConfig {
     throw new Error(`Unknown check(s): ${unknown.join(', ')}. Known checks: ${known.join(', ')}`);
   }
 
+  // A typo in the denylist is worse than a typo in the allowlist: `--only acessibility`
+  // runs nothing and is obvious within seconds, whereas `--skip acessibility` runs the
+  // check you were trying to switch off and looks entirely normal. Reject both.
+  const unknownDisabled = config.disabledChecks.filter((c) => !known.includes(c));
+  if (unknownDisabled.length > 0) {
+    throw new Error(
+      `Unknown disabled check(s): ${unknownDisabled.join(', ')}. Known checks: ${known.join(', ')}`,
+    );
+  }
+
   // Registering a custom check is enough to make it run. Only when the caller named
   // `checks` explicitly do we take that list at its word — that is them saying "only
   // these", and silently appending would break --only.
   if (options.checks === undefined) {
     config.checks = [...config.checks, ...customIds];
+  }
+
+  // Subtracted last so it beats both the allowlist and the custom-check ids: "everything
+  // except X" must mean that however X got into the list.
+  if (config.disabledChecks.length > 0) {
+    config.checks = config.checks.filter((c) => !config.disabledChecks.includes(c));
+
+    if (config.checks.length === 0) {
+      throw new Error(
+        'Every check is disabled, so the crawl would visit every page and report nothing. ' +
+          'Narrow `disabledChecks`, or use `rules`/`priorities`/`categories` to filter the ' +
+          'output of a run that still does the work.',
+      );
+    }
   }
 
   for (const custom of config.customChecks) {

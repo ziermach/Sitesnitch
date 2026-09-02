@@ -86,6 +86,50 @@ describe('hostMatches', () => {
     // would otherwise flag production hosts like `my-staging-tips.example.com`.
     expect(hostMatches('not-staging.example.com', 'staging.*')).toBe(false);
   });
+
+  it('matches a wildcard inside a label', () => {
+    expect(hostMatches('staging-01', 'staging-*')).toBe(true);
+    expect(hostMatches('staging-eu.example.com', 'staging-*')).toBe(true);
+    expect(hostMatches('prod-01', 'staging-*')).toBe(false);
+
+    expect(hostMatches('eu-staging.example.com', '*-staging.example.com')).toBe(true);
+    expect(hostMatches('staging.example.com', '*-staging.example.com')).toBe(false);
+  });
+
+  it('matches more than one wildcard, including one in the middle', () => {
+    expect(hostMatches('api.eu.example.com', 'api.*.example.com')).toBe(true);
+    expect(hostMatches('api.example.com', 'api.*.example.com')).toBe(false);
+
+    // The same internal site across every TLD you own.
+    expect(hostMatches('dev.example.de', '*.example.*')).toBe(true);
+    expect(hostMatches('dev.example.co.uk', '*.example.*')).toBe(true);
+    expect(hostMatches('dev.notexample.com', '*.example.*')).toBe(false);
+  });
+
+  it('stays anchored — a wildcard is not a substring search', () => {
+    // The whole reason this is a glob and not `host.includes(pattern)`. Losing the anchors
+    // is how the check starts accusing production hosts.
+    expect(hostMatches('cdn.example.com.evil.test', '*.example.com')).toBe(false);
+    expect(hostMatches('example.com.evil.test', 'example.com')).toBe(false);
+  });
+
+  it('does a substring match only when explicitly asked for one', () => {
+    expect(hostMatches('my-staging-tips.example.com', '*staging*')).toBe(true);
+    expect(hostMatches('www.example.com', '*staging*')).toBe(false);
+  });
+
+  it('treats regex metacharacters in a pattern as literal text', () => {
+    // A dot is a dot. Without escaping, 'dev.example.com' would also match
+    // 'devXexample.com' — a different registrable domain someone else can own.
+    expect(hostMatches('devxexample.com', 'dev.example.com')).toBe(false);
+    expect(hostMatches('dev.example.com', 'dev.example.com')).toBe(true);
+    expect(hostMatches('a+b.example.com', 'a+b.example.com')).toBe(true);
+  });
+
+  it('is case-insensitive on both sides', () => {
+    expect(hostMatches('STAGING.Example.COM', '*.example.com')).toBe(true);
+    expect(hostMatches('staging.example.com', '*.EXAMPLE.com')).toBe(true);
+  });
 });
 
 describe('matchForbiddenHost', () => {

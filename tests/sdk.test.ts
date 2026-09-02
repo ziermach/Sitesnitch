@@ -67,6 +67,53 @@ describe('resolveConfig', () => {
     ).toThrow(/Unknown check/);
   });
 
+  it('subtracts disabledChecks from whatever the allowlist resolved to', () => {
+    const config = resolveConfig({
+      baseUrl: 'https://example.com',
+      disabledChecks: ['accessibility', 'images'],
+    });
+    expect(config.checks).not.toContain('accessibility');
+    expect(config.checks).not.toContain('images');
+    expect(config.checks).toContain('forbidden-hosts');
+  });
+
+  it('lets disabledChecks override an explicit checks list', () => {
+    // "Everything except X" has to mean that however X got into the list, or the two
+    // options fight and which one wins becomes a thing people have to remember.
+    const config = resolveConfig({
+      baseUrl: 'https://example.com',
+      checks: ['seo', 'links'],
+      disabledChecks: ['links'],
+    });
+    expect(config.checks).toEqual(['seo']);
+  });
+
+  it('refuses a typo in disabledChecks', () => {
+    // The dangerous direction: --only acessibility runs nothing and is obvious in seconds,
+    // whereas --skip acessibility runs the check you meant to switch off and looks normal.
+    expect(() =>
+      resolveConfig({ baseUrl: 'https://example.com', disabledChecks: ['acessibility'] }),
+    ).toThrow(/Unknown disabled check/);
+  });
+
+  it('refuses a config that disables every check', () => {
+    expect(() =>
+      resolveConfig({
+        baseUrl: 'https://example.com',
+        checks: ['seo'],
+        disabledChecks: ['seo'],
+      }),
+    ).toThrow(/Every check is disabled/);
+  });
+
+  it('refuses a host pattern that matches everything', () => {
+    for (const pattern of ['*', '**', '*.*']) {
+      expect(() =>
+        resolveConfig({ baseUrl: 'https://example.com', forbiddenHosts: [pattern] }),
+      ).toThrow(/matches every host/);
+    }
+  });
+
   it('merges nested seo thresholds instead of replacing them wholesale', () => {
     const config = resolveConfig({ baseUrl: 'https://example.com', seo: { titleMax: 60 } as never });
     expect(config.seo.titleMax).toBe(60);

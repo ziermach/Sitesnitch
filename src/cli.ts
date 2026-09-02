@@ -180,6 +180,10 @@ function parseArgs(argv: string[]): Partial<CrawlerConfig> {
       case '--only':
         overrides.checks = next().split(',').map((s) => s.trim());
         break;
+      case '--skip':
+      case '--disable':
+        overrides.disabledChecks = list();
+        break;
       case '--paths':
         overrides.includePaths = list();
         break;
@@ -302,6 +306,8 @@ Options:
   --only <a,b>           Run only these checks: ${ALL_CHECKS.join(', ')}
                          This is the lever that makes a run CHEAP — e.g. --only
                          forbidden-hosts skips link probing entirely.
+  --skip <a,b>           Run everything EXCEPT these checks. Applied last, so it
+                         also overrides --only. e.g. --skip accessibility
 
 Report only specific issues (these filter output; the crawl still runs in full):
   --rules <a,b>          Only these rules, e.g. --rules missing-h1,link-dead
@@ -324,6 +330,7 @@ Examples:
   sitesnitch --locales en --max-pages 20                 Quick smoke run
   sitesnitch --only forbidden-hosts                      Hunt staging/dev leaks only (fast)
   sitesnitch --only llms-txt                             Check llms.txt links only
+  sitesnitch --skip accessibility,images                 Everything but those two
   sitesnitch --priority P0                               Report only critical issues
   sitesnitch --rules missing-h1,link-dead                Report only these two rules
 `);

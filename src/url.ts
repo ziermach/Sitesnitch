@@ -92,24 +92,63 @@ export function hostOf(url: string): string | null {
 }
 
 /**
- * Matches a host against a pattern supporting a single leading OR trailing wildcard:
+ * Matches a host against a glob pattern. `*` stands for any run of characters, including
+ * dots, and may appear anywhere and more than once:
+ *
  *   'dev.example.com'      -> exact
  *   '*.local'              -> any subdomain of .local, and 'local' itself
- *   'staging.*'            -> any host whose first label is 'staging'
+ *   'staging.*'            -> any host whose first label is 'staging', and bare 'staging'
+ *   'staging-*'            -> 'staging-01', 'staging-eu.example.com'
+ *   '*-staging.example.com'-> 'eu-staging.example.com'
+ *   '*.example.*'          -> the same site across every TLD you own
+ *   'a.*.example.com'      -> a wildcard in the middle
+ *
+ * The pattern is anchored at both ends, which is the whole reason this is a glob and not a
+ * substring search: `staging.*` matches `staging.example.com` but NOT
+ * `not-staging.example.com`, and that distinction is what stops the forbidden-host check
+ * from accusing production hosts like `my-staging-tips.example.com`. If you want the loose
+ * behaviour, you have to ask for it explicitly with `*staging*` — and you should think
+ * hard before you do.
+ *
+ * The two anchored forms also match the bare host, because `*.local` meaning "a subdomain
+ * of .local but not .local itself" would be a surprise, and because the wildcard there
+ * stands for "any labels, or none".
  */
 export function hostMatches(host: string, pattern: string): boolean {
   const h = host.toLowerCase();
   const p = pattern.toLowerCase();
 
-  if (p.startsWith('*.')) {
-    const suffix = p.slice(2);
-    return h === suffix || h.endsWith('.' + suffix);
-  }
-  if (p.endsWith('.*')) {
-    const prefix = p.slice(0, -2);
-    return h === prefix || h.startsWith(prefix + '.');
-  }
-  return h === p;
+  if (!p.includes('*')) return h === p;
+
+  if (p.startsWith('*.') && h === p.slice(2)) return true;
+  if (p.endsWith('.*') && h === p.slice(0, -2)) return true;
+
+  return globRegExp(p).test(h);
+}
+
+/**
+ * Compiled host globs, cached by pattern.
+ *
+ * hostMatches runs for every candidate URL against every configured pattern — on a big
+ * crawl that is millions of calls over a handful of patterns, so recompiling the regex each
+ * time is pure waste. The key space is bounded by the config, not by the crawl.
+ */
+const globCache = new Map<string, RegExp>();
+
+function globRegExp(pattern: string): RegExp {
+  const cached = globCache.get(pattern);
+  if (cached) return cached;
+
+  // Escape everything that is regex-special, then reinstate `*` as `.*`. Splitting on the
+  // wildcard first is what makes that safe: the escaper never sees a `*` it should keep.
+  const source = pattern
+    .split('*')
+    .map((literal) => literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*');
+
+  const re = new RegExp(`^${source}$`);
+  globCache.set(pattern, re);
+  return re;
 }
 
 /** First forbidden pattern this URL's host matches, or null. */
