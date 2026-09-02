@@ -152,6 +152,12 @@ export const RULE_META: Record<string, RuleMeta> = {
     category: 'coverage',
     rationale: 'axe could not run, so this page’s accessibility is unknown — which is not the same as clean.',
   },
+  'page-blocked': {
+    priority: 'P1',
+    category: 'coverage',
+    rationale:
+      'Bot protection or rate limiting answered instead of the site, so this page went unchecked — a hole in the crawl, not a defect in the page.',
+  },
 
   // ---- P1: broken for real users, or invisible to search -----------------------------
   'client-error': {

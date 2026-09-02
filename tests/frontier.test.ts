@@ -121,4 +121,22 @@ describe('Frontier', () => {
     f.add('https://other-site.test/', 0);
     expect(f.skipCounts).toMatchObject({ 'wrong-locale': 1, 'off-site': 1 });
   });
+
+  it('takes a rate-limited page back, though add() would refuse it', () => {
+    // The retry path must not go through add(): the URL is already in `seen`, so it would
+    // be counted as a duplicate and dropped — leaving the page permanently unmeasured,
+    // which is the bug retrying exists to fix.
+    const f = frontier();
+    f.add('https://example.com/en/vps/', 0, undefined, 'sitemap');
+
+    const item = f.next();
+    expect(item).toBeDefined();
+    expect(f.add(item!.url, 0)).toBe('duplicate');
+
+    f.requeue({ ...item!, attempts: 1 });
+
+    expect(f.size).toBe(1);
+    expect(f.next()).toMatchObject({ url: 'https://example.com/en/vps/', attempts: 1 });
+    expect(f.requeuedCount).toBe(1);
+  });
 });

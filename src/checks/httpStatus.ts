@@ -1,3 +1,4 @@
+import { blockedIssue, detectBlock } from '../blocked.js';
 import type { Check, Issue } from '../types.js';
 
 /** The page's own health: did it load, what did it return, and how did it get there. */
@@ -24,6 +25,21 @@ export const httpStatusCheck: Check = (ctx, { config }): Issue[] => {
       pageUrl: ctx.url,
       detail: withSource(`after ${ctx.loadMs}ms`),
     });
+    return issues;
+  }
+
+  /**
+   * Refused, not broken — and reported once, as coverage, before any of the status rules
+   * below get a look at it.
+   *
+   * Everything downstream would otherwise describe the doorman's page: `client-error` for
+   * the 403, `redirect-to-error` for the challenge's reload of the same URL,
+   * `dom-extraction-failed` when its CSP blocks us. Five findings, none of them about the
+   * site. The early return is the point.
+   */
+  const blocked = detectBlock(ctx);
+  if (blocked) {
+    issues.push(blockedIssue(ctx, blocked));
     return issues;
   }
 

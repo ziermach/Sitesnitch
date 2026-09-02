@@ -1,6 +1,6 @@
 import { Agent, setGlobalDispatcher } from 'undici';
 import type { ResolvedConfig } from './config.js';
-import { PerOriginThrottle } from './throttle.js';
+import { PerOriginThrottle, retryAfterMs } from './throttle.js';
 import type { LinkStatus } from './types.js';
 import { normalizeUrl } from './url.js';
 
@@ -47,10 +47,21 @@ export class LinkChecker {
   private readonly cache = new Map<string, LinkStatus>();
   private readonly inFlight = new Map<string, Promise<LinkStatus>>();
 
+  /**
+   * Shared with the Crawler, not private to probing.
+   *
+   * Page navigations and link probes hit the same origin, so two independent limiters would
+   * mean the host sees the sum of both — the arrangement that let one run collect 484
+   * rate-limit responses. One limiter, one budget, and a 429 seen by either surface slows
+   * down both.
+   */
   private readonly throttle: PerOriginThrottle;
 
-  constructor(private readonly config: ResolvedConfig) {
-    this.throttle = new PerOriginThrottle(config.perOriginConcurrency);
+  constructor(
+    private readonly config: ResolvedConfig,
+    throttle?: PerOriginThrottle,
+  ) {
+    this.throttle = throttle ?? new PerOriginThrottle(config.perOriginConcurrency);
     // Sized to the per-origin cap, not above it: queuing belongs on our side of the wire.
     configureConnectionPool(config.perOriginConcurrency);
   }
@@ -174,6 +185,13 @@ export class LinkChecker {
       const finalUrl = normalizeUrl(response.url) ?? url;
       const status = response.status;
       const redirected = response.redirected;
+
+      // A 429 is the host asking for room. It still gets reported as link-refused (it is
+      // not a broken link), but the crawl must act on it, not merely note it.
+      if (status === 429) {
+        this.throttle.penalize(url, retryAfterMs(response.headers.get('retry-after')));
+      }
+
       await release(response);
 
       return {

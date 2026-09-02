@@ -57,6 +57,15 @@ export interface CrawlerConfig {
   linkTimeout: number;
   /** Politeness delay between navigations, per worker, ms. */
   delayMs: number;
+  /**
+   * How many times a rate-limited page is re-queued before we give up and report it as
+   * unmeasured. 0 disables retrying.
+   */
+  blockedRetries: number;
+  /** First cooldown after an origin returns 429. Doubles per consecutive strike. */
+  rateLimitBackoffMs: number;
+  /** Ceiling on one cooldown, however long a Retry-After the server sends. */
+  maxRateLimitBackoffMs: number;
   respectRobots: boolean;
   /**
    * Hosts that must never appear in production output — your own staging and dev
@@ -238,6 +247,24 @@ export const DEFAULT_CONFIG: CrawlerConfig = {
   // longer stall on hosts that were never going to answer.
   linkTimeout: 10_000,
   delayMs: 500,
+
+  /**
+   * What to do when a host says 429.
+   *
+   * The standing lesson elsewhere in this file is that you cannot *rely* on a rate-limit
+   * response — a site driven into the ground never sent one, it simply stopped answering. That
+   * is an argument for staying slow by default, not for ignoring hosts that do speak up. One site
+   * sent 484 in a single run; the crawler noted every one of them, changed nothing, and
+   * finished with 485 pages it had never actually read.
+   *
+   * Two retries at a doubling cooldown is enough for a burst limit to reset without the
+   * run turning into an argument with the WAF: if a host is still refusing after ~30s of
+   * waiting, it means it, and the page is reported as unmeasured instead.
+   */
+  blockedRetries: 2,
+  rateLimitBackoffMs: 10_000,
+  maxRateLimitBackoffMs: 60_000,
+
   respectRobots: true,
 
   /**

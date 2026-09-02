@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 
+import { blockedIssue, detectBlock } from './blocked.js';
 import { runPageChecks } from './checks/index.js';
 import { scanTextForForbiddenHosts } from './checks/forbiddenHosts.js';
 import { classify } from './classify.js';
@@ -13,6 +14,7 @@ import { Crawler } from './crawler.js';
 import { runCrossPageChecks } from './crossPage.js';
 import { Frontier } from './frontier.js';
 import { LinkChecker } from './linkChecker.js';
+import { DEFAULT_BACKOFF, PerOriginThrottle } from './throttle.js';
 import { parseLlmsTxt, type LlmsTxtDoc } from './llmsTxt.js';
 import { writeHtmlReport } from './report/html.js';
 import { writeJsonReport } from './report/json.js';
@@ -50,6 +52,13 @@ export interface CrawlOutcome {
    * must not read as "the whole site is clean".
    */
   skipped: Record<string, number>;
+  /**
+   * Page fetches retried after the host answered 429.
+   *
+   * Counted for the same reason the skips are: a run that had to fight the site for its
+   * pages should say so, whether or not the retries eventually succeeded.
+   */
+  rateLimited: number;
 }
 
 /**
@@ -83,7 +92,15 @@ export async function runCrawl(
     log(`robots.txt: ${robots.disallow.length} disallow rules will be respected`);
   }
 
-  const linkChecker = new LinkChecker(config);
+  // One per-origin budget for the whole run, shared by page navigations and link probes.
+  // Two limiters would mean the site sees the sum of both, which is how a supposed cap of 6
+  // put 11 concurrent requests on one host.
+  const throttle = new PerOriginThrottle(config.perOriginConcurrency, {
+    baseMs: config.rateLimitBackoffMs,
+    maxMs: config.maxRateLimitBackoffMs,
+    forgetMs: DEFAULT_BACKOFF.forgetMs,
+  });
+  const linkChecker = new LinkChecker(config, throttle);
   const frontier = new Frontier(config, robots);
 
   // --- Seeding ---------------------------------------------------------------
@@ -119,7 +136,7 @@ export async function runCrawl(
 
   // --- Crawl -----------------------------------------------------------------
   const pages: PageResult[] = [];
-  const crawler = new Crawler(config, frontier);
+  const crawler = new Crawler(config, frontier, throttle);
   const checksEnabled = config.checks;
   const progress = new ProgressLogger(
     () => frontier.size,
@@ -147,15 +164,36 @@ export async function runCrawl(
         await linkChecker.checkAll([...new Set(targets)]);
       }
 
-      const issues = await runPageChecks(ctx, checksEnabled, {
+      let issues = await runPageChecks(ctx, checksEnabled, {
         config,
         linkStatus: (url) => linkChecker.get(url),
       });
 
+      /**
+       * What we measured on a blocked page is the WAF's interstitial, so its findings
+       * describe Cloudflare, not the site: subresource failures from the challenge script,
+       * an axe run its CSP refused, a missing description on a page that has no content.
+       * On one observed run that was five fabricated issues apiece across 485 pages.
+       *
+       * Forbidden-host findings survive the cull unconditionally. That surface is the
+       * reason this tool exists, and no noise-reduction rule gets to be the thing that
+       * silences it.
+       */
+      const blocked = detectBlock(ctx);
+      if (blocked) {
+        issues = issues.filter((i) => i.check === 'forbidden-hosts' || i.rule === 'page-blocked');
+        // Like dom-extraction-failed below: reported even with --only set to something
+        // else, because a page nobody looked at must never read as a page nobody faulted.
+        if (!issues.some((i) => i.rule === 'page-blocked')) {
+          issues.unshift(blockedIssue(ctx, blocked));
+        }
+      }
+
       // Reported even when the http-status check is switched off. A page we failed to read
       // is a hole in the crawl's coverage, and a hole must never be silent — no --only
-      // combination should be able to hide it.
-      if (ctx.domError && !issues.some((i) => i.rule === 'dom-extraction-failed')) {
+      // combination should be able to hide it. (A blocked page is already reported as that
+      // same hole, by page-blocked, and does not need a second one.)
+      if (!blocked && ctx.domError && !issues.some((i) => i.rule === 'dom-extraction-failed')) {
         issues.unshift({
           check: 'http-status',
           severity: 'error',
@@ -222,7 +260,7 @@ export async function runCrawl(
     counts: countBySeverity([...pages.flatMap((p) => p.issues), ...globalIssues]),
   };
 
-  return { report, config, skipped: frontier.skipCounts };
+  return { report, config, skipped: frontier.skipCounts, rateLimited: frontier.requeuedCount };
 }
 
 export interface WrittenReports {

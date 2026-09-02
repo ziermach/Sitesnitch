@@ -22,6 +22,8 @@ export interface FrontierItem {
    * that points at it.
    */
   source: string;
+  /** How many times this URL has already been fetched and rejected by a rate limit. */
+  attempts?: number;
 }
 
 export type SkipReason =
@@ -47,6 +49,7 @@ export class Frontier {
   private readonly seen = new Set<string>();
   private readonly skips = new Map<SkipReason, number>();
   private accepted = 0;
+  private requeued = 0;
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -113,6 +116,26 @@ export class Frontier {
 
   next(): FrontierItem | undefined {
     return this.queue.shift();
+  }
+
+  /**
+   * Puts an already-accepted URL back at the end of the queue, for a retry after the host
+   * rate-limited us.
+   *
+   * Deliberately bypasses `add()`. That method's whole job is deciding whether a URL
+   * belongs in the crawl, and this one has already been through it — routing a retry there
+   * would be rejected as a `duplicate` (it is in `seen`) and the page would be dropped for
+   * good, which is the bug this exists to fix. The queue's tail is also the right place: it
+   * puts the whole rest of the frontier between us and the host that just complained.
+   */
+  requeue(item: FrontierItem): void {
+    this.requeued++;
+    this.queue.push(item);
+  }
+
+  /** Retries issued so far. Counted for the same reason skips are: silence is not a result. */
+  get requeuedCount(): number {
+    return this.requeued;
   }
 
   get size(): number {

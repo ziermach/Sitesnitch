@@ -34,7 +34,7 @@ async function main(): Promise<void> {
 
   const options = await loadOptions(argv);
 
-  const { report, config, skipped } = await runCrawl(options, { log: console.log });
+  const { report, config, skipped, rateLimited } = await runCrawl(options, { log: console.log });
   const { jsonPath, htmlPath } = await writeReports(report, config);
 
   printSummary(report);
@@ -44,6 +44,16 @@ async function main(): Promise<void> {
     // should not read as "the whole site is clean".
     console.log(
       `Skipped: ${Object.entries(skipped).map(([reason, n]) => `${n} ${reason}`).join(', ')}`,
+    );
+    console.log();
+  }
+
+  // Same principle as the skip counts: a run that had to fight the host for its pages
+  // should say so, whether or not the retries eventually succeeded.
+  if (rateLimited > 0) {
+    console.log(
+      `Rate limited: ${rateLimited} page fetches retried after a 429 — ` +
+        'consider a lower concurrency for this site',
     );
     console.log();
   }

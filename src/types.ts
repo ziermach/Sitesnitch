@@ -124,6 +124,11 @@ export interface PageContext {
   /** Where this URL was found: the linking page's URL, or 'sitemap' / 'llms.txt'. */
   source: string;
   loadMs: number;
+  /**
+   * How many times we fetched this URL, including retries after a rate limit. 1 for almost
+   * every page; higher means the host pushed back and we waited and came again.
+   */
+  attempts?: number;
   dom: DomSnapshot | null;
   console: ConsoleEntry[];
   failedRequests: FailedRequest[];

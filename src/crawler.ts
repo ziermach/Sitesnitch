@@ -1,9 +1,11 @@
 import { createRequire } from 'node:module';
 import { type Browser, type BrowserContext, type Page, type Response } from 'playwright';
+import { isRateLimited } from './blocked.js';
 import { launchChromium } from './browser.js';
 import type { ResolvedConfig } from './config.js';
 import { dismissConsent, seedConsent } from './consent.js';
 import type { Frontier } from './frontier.js';
+import { PerOriginThrottle, retryAfterMs } from './throttle.js';
 import type {
   AxeViolation,
   ConsoleEntry,
@@ -34,6 +36,15 @@ export class Crawler {
   constructor(
     private readonly config: ResolvedConfig,
     private readonly frontier: Frontier,
+    /**
+     * The same limiter the link probes use. Page navigations went around it entirely until
+     * one run made the omission visible: 5 browser contexts and 6 probe slots meant
+     * up to 11 concurrent requests at a host whose per-origin budget was supposedly 6, and
+     * the site answered 484 of them with 429.
+     */
+    private readonly throttle: PerOriginThrottle = new PerOriginThrottle(
+      config.perOriginConcurrency,
+    ),
   ) {}
 
   async run(hooks: CrawlHooks): Promise<void> {
@@ -64,17 +75,46 @@ export class Crawler {
         const item = this.frontier.next();
         if (!item) return;
 
-        const ctx = await this.visit(context, item.url, item.depth, item.source);
+        const attempts = (item.attempts ?? 0) + 1;
+        const { ctx, retryAfter } = await this.visit(
+          context,
+          item.url,
+          item.depth,
+          item.source,
+          attempts,
+        );
+
+        /**
+         * A rate-limited page is not a result, it is a page we have not fetched yet.
+         *
+         * Recording it and moving on is what turned 484 observed 429s into 484
+         * unmeasured pages — and, because a challenge page carries no links, into a
+         * truncated BFS frontier on top. Back the whole origin off (every worker and every
+         * link probe waits, not just this one) and put the URL back in the queue.
+         */
+        if (isRateLimited(ctx.status) && attempts <= this.config.blockedRetries) {
+          this.throttle.penalize(item.url, retryAfter);
+          this.frontier.requeue({ ...item, attempts });
+          await this.pause();
+          continue;
+        }
+        if (isRateLimited(ctx.status)) this.throttle.penalize(item.url, retryAfter);
+
         this.done++;
         await hooks.onPage(ctx);
         hooks.onProgress?.(this.done, this.frontier.size);
 
-        if (this.config.delayMs > 0) {
-          await new Promise((r) => setTimeout(r, this.config.delayMs));
-        }
+        await this.pause();
       }
     } finally {
       await context.close();
+    }
+  }
+
+  /** The politeness delay between navigations, per worker. */
+  private async pause(): Promise<void> {
+    if (this.config.delayMs > 0) {
+      await new Promise((r) => setTimeout(r, this.config.delayMs));
     }
   }
 
@@ -84,7 +124,8 @@ export class Crawler {
     url: string,
     depth: number,
     source: string,
-  ): Promise<PageContext> {
+    attempts: number,
+  ): Promise<{ ctx: PageContext; retryAfter?: number }> {
     const page = await context.newPage();
 
     const consoleEntries: ConsoleEntry[] = [];
@@ -152,22 +193,36 @@ export class Crawler {
       });
     });
 
-    const started = Date.now();
+    let started = Date.now();
     let response: Response | null = null;
     let navigationError: string | undefined;
 
     try {
-      response = await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: this.config.requestTimeout,
+      /**
+       * Navigation runs inside the origin's slot, and the timeout clock starts inside it
+       * too — the same invariant the link probes hold. Started outside, a page could spend
+       * its whole 30s budget queueing behind our own politeness and be recorded as a
+       * navigation failure without a request ever being sent.
+       *
+       * The slot covers the settle wait as well. That wait is not idle time from the site's
+       * point of view: the page is still pulling subresources from it, which is exactly the
+       * load the per-origin cap exists to bound.
+       */
+      response = await this.throttle.run(url, async () => {
+        started = Date.now();
+        const res = await page.goto(url, {
+          waitUntil: 'domcontentloaded',
+          timeout: this.config.requestTimeout,
+        });
+        // Give late-firing scripts a chance to throw and late XHRs a chance to fire — a
+        // staging-host call made from JS after load is exactly the leak we're hunting.
+        // Timing out here is the normal case, not an error: ad and analytics traffic means
+        // many pages never reach a genuinely idle network.
+        await page
+          .waitForLoadState('networkidle', { timeout: this.config.settleMs })
+          .catch(() => undefined);
+        return res;
       });
-      // Give late-firing scripts a chance to throw and late XHRs a chance to fire — a
-      // staging-host call made from JS after load is exactly the leak we're hunting.
-      // Timing out here is the normal case, not an error: ad and analytics traffic means
-      // many pages never reach a genuinely idle network.
-      await page
-        .waitForLoadState('networkidle', { timeout: this.config.settleMs })
-        .catch(() => undefined);
     } catch (err) {
       navigationError = err instanceof Error ? err.message : String(err);
     }
@@ -207,25 +262,32 @@ export class Crawler {
     }
 
     const redirectChain = response ? buildRedirectChain(response) : [];
+    const retryAfter = response
+      ? retryAfterMs(response.headers()['retry-after'])
+      : undefined;
 
     await page.close();
 
     return {
-      url,
-      finalUrl: response ? response.url() : url,
-      status: response ? response.status() : 0,
-      redirectChain,
-      depth,
-      source,
-      loadMs,
-      dom,
-      console: consoleEntries,
-      failedRequests,
-      requestUrls,
-      axe,
-      axeError,
-      navigationError,
-      domError,
+      ctx: {
+        url,
+        finalUrl: response ? response.url() : url,
+        status: response ? response.status() : 0,
+        redirectChain,
+        depth,
+        source,
+        loadMs,
+        attempts,
+        dom,
+        console: consoleEntries,
+        failedRequests,
+        requestUrls,
+        axe,
+        axeError,
+        navigationError,
+        domError,
+      },
+      retryAfter,
     };
   }
 }
