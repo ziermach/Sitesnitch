@@ -280,6 +280,9 @@ Every option, with its default. Only `baseUrl` is required.
 | `requestTimeout` | `30000` | Per-page navigation timeout. |
 | `linkTimeout` | `10000` | Per link probe. Shorter — we only need headers. |
 | `settleMs` | `3000` | Wait for network idle after load. The biggest lever on crawl speed. |
+| `blockedRetries` | `2` | Retries for a page the host answered with 429, after backing off. `0` disables. |
+| `rateLimitBackoffMs` | `10000` | First cooldown after a 429. Doubles per consecutive strike; `Retry-After` wins if longer. |
+| `maxRateLimitBackoffMs` | `60000` | Ceiling on one cooldown, however long a `Retry-After` arrives. |
 | `userAgent` | `SiteSnitch/0.1 …` | |
 
 ### Checks and output
@@ -355,12 +358,13 @@ ahead of your privacy policy pointing at staging.
 </details>
 
 <details>
-<summary><b>P1 — High, fix this sprint</b> (18 rules)</summary>
+<summary><b>P1 — High, fix this sprint</b> (19 rules)</summary>
 
 | rule | category |
 | --- | --- |
 | `a11y-critical`, `a11y-serious` | Accessibility (WCAG) |
 | `a11y-audit-failed` | Crawl coverage |
+| `page-blocked` | Crawl coverage |
 | `client-error` | Broken pages & links |
 | `link-dead`, `link-server-error`, `link-unreachable` | Broken pages & links |
 | `llms-txt-link-dead`, `llms-txt-link-unreachable` | Broken pages & links |
@@ -485,9 +489,16 @@ real visitors were plausibly served degraded pages. **There were no 429s.** The 
 asked it to slow down; it just stopped answering. Do not expect a rate-limit response to
 protect you.
 
+When one *does* arrive, the crawler obeys it: a 429 backs the whole origin off — honouring
+`Retry-After`, doubling per consecutive strike — and the page returns to the frontier for up
+to `blockedRetries` attempts. A page still refused after that is reported as `page-blocked`
+(a warning, in Crawl coverage) rather than as a broken page, because a bot challenge is a
+hole in what was measured, not a defect in the site. A `Rate limited:` line in the run
+summary means you should lower `concurrency` and `perOriginConcurrency` for that site.
+
 `perOriginConcurrency` is the number that matters — a *global* cap protects nothing when
-nearly every URL is on one host. The crawl being slow is not a problem. The crawl hurting
-the site is.
+nearly every URL is on one host. It covers page navigations and link probes together, from
+one shared budget. The crawl being slow is not a problem. The crawl hurting the site is.
 
 ### Keep `forbiddenHosts` precise
 

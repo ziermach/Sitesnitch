@@ -130,6 +130,29 @@ timed out after 30s on 43 pages, ~1,300 healthy links were reported dead, and re
 were plausibly served degraded pages. **There were no 429s.** The server never asked us to
 slow down; it just stopped answering. Do not expect a rate-limit response to protect you.
 
+**But when one does arrive, obey it.** That warning is about what you cannot rely on, not a
+licence to ignore the hosts that do speak up — and the crawler ignored 484 of them in a single
+run, finishing with 485 pages it had fetched and never read, with no links harvested from any
+of them to carry the BFS forward. A 429 now backs the whole origin off
+(`PerOriginThrottle.penalize`, honouring `Retry-After`, doubling per strike, capped) and the
+page goes back on the frontier for up to `blockedRetries` attempts, through
+`Frontier.requeue` — `add()` would reject it as a duplicate and lose it for good. The
+`Rate limited:` line in the run summary is the signal to lower `concurrency` and
+`perOriginConcurrency` for that site and run again.
+
+**A refusal is not a defect, on the page surface either.** `links.ts` has always known that a
+403 from a WAF says something about the crawler, not the URL (`REFUSAL_STATUSES`); the
+page-level checks did not, and 485 bot-protection interstitials were reported as P1
+`client-error`s and P0 `redirect-to-error`s — a challenge that reloads the same URL leaves a
+redirect chain reading `/x -> /x`. `src/blocked.ts` now classifies these as `page-blocked`
+(warning, P1, coverage) and `run.ts` drops the rest of the findings from such a page, because
+they describe the interstitial rather than the site: subresource failures from the challenge
+script, an axe run its CSP refused, a missing description on a page that has no content.
+Forbidden-host findings are exempt from that cull — that surface is never silenced by a
+noise-reduction rule. The detection is deliberately narrow: 429 always counts, but a 403 is
+downgraded **only** with a recognised challenge body, so a genuinely public-facing 403 stays
+an error. Trading a false positive for a false negative would be the worse bargain.
+
 `PerOriginThrottle` (`src/throttle.ts`) is the limit that actually matters — a *global* cap
 protects nothing when nearly every URL is on one host. Two invariants:
 
@@ -138,6 +161,10 @@ protects nothing when nearly every URL is on one host. Two invariants:
 - The `linkTimeout` clock starts **inside** the throttle. Start it outside and a probe can
   exhaust its budget queueing behind our own politeness and be reported dead without a
   request ever being sent — the phantom-timeout bug, reintroduced.
+- Page navigations share the same limiter as the link probes, and hold the slot through the
+  settle wait. They went around it entirely until 5 contexts plus 6 probe slots were seen
+  putting 11 concurrent requests on a host budgeted for 6. Two limiters mean the host gets the
+  sum of both, which is not a cap at all.
 
 The crawl being slow is not a problem. The crawl hurting the site is.
 
