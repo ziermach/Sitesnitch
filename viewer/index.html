@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Crawl report</title>
+<title>sitesnitch — crawl report</title>
 <!--
   A static viewer, committed as source. It reads report.json at runtime rather than having
   the data baked into it.
@@ -23,56 +23,61 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
   /*
-    A neutral palette: a blue accent, a red/amber/blue/grey status ramp, Montserrat over
-    Inter. Swap the custom properties below for your own design tokens if you want the
-    report to read as part of your system — but re-check the contrast notes when you do.
+    sitesnitch's own palette — violet accent, neutral greys, and a red/amber/violet/grey
+    status ramp. Deliberately tied to no company's design system: this report is a tool's
+    output, not a page of your site. Swap the custom properties below for your own tokens
+    if you want it to read as part of your system, but re-check the ratios when you do.
 
-    Two values are derived rather than used raw. The amber (#feb600) scores 1.72:1 on a
-    light surface, so P1 *text* uses a darkened step and only fills use the raw value; the
-    green is lightened for the dark ground.
+    Every colour used for TEXT clears WCAG AA (4.5:1) against both --surface and --bg, in
+    both themes. The lowest is --p3/--dim at 5.39:1 on the dark surface.
 
-    Priority colour is a STATUS scale, not a categorical one: P0 red, P1 amber, P2 brand
-    blue, P3 recessive grey. Red and amber are close under deuteranopia (best achievable
-    separation here is dE 6.6), which is why every priority element also carries its literal
-    label -- the chips, the pills and the group badges all say "P0"/"P1"/"P2"/"P3". Identity
-    never rests on colour alone. Do not remove those labels.
+    Amber is the awkward one: at full chroma (#f5a524) it scores 2.04:1 on white, so the
+    light theme darkens the P1 *fill* to #d17f00 (3.11:1, the least darkening that clears
+    the 3:1 non-text threshold) while the dark theme keeps the vivid value, which already
+    scores 8.16:1 there. P1 *text* uses --p1, darker still.
+
+    Priority colour is a STATUS scale, not a categorical one: P0 red, P1 amber, P2 violet,
+    P3 recessive grey. Red and amber stay close under deuteranopia however they are tuned,
+    which is why every priority element also carries its literal label -- the chips, the
+    pills and the group badges all say "P0"/"P1"/"P2"/"P3". Identity never rests on colour
+    alone. Do not remove those labels.
   */
   :root{
-    --bg:#f4f5f8;
+    --bg:#f6f7f9;
     --surface:#fff;
-    --surface-2:#e8f1ff;
-    --fg:#19232d;
-    --fg-2:#323c46;
-    --dim:#5a6473;
-    --border:#dbe3ea;
-    --border-strong:#b4c3cd;
+    --surface-2:#f0eefe;
+    --fg:#16181d;
+    --fg-2:#333842;
+    --dim:#5c6371;
+    --border:#e2e4e9;
+    --border-strong:#b9bec8;
     --card:#fff;
-    --accent:#0a78c3;
-    --p0:#b3121a; --p1:#9a6a00; --p2:#0a78c3; --p3:#55636f;
-    --p0-fill:#d71919; --p1-fill:#feb600;
-    --info:#0a78c3;
-    --shadow:0 1px 2px rgba(25,35,45,.05);
+    --accent:#5b3ce6;
+    --p0:#c01a35; --p1:#8a5300; --p2:#4a3ad4; --p3:#5c6371;
+    --p0-fill:#e0244a; --p1-fill:#d17f00;
+    --info:#5b3ce6;
+    --shadow:0 1px 2px rgba(20,21,26,.05);
   }
   @media (prefers-color-scheme:dark){
     :root:not([data-theme="light"]){
-      --bg:#111a23; --surface:#19232d; --surface-2:#22303c;
-      --fg:#eef3f8; --fg-2:#b4c3cd; --dim:#8fa0ae;
-      --border:#2b3945; --border-strong:#3d4f5e; --card:#19232d;
-      --accent:#00aaeb;
-      --p0:#ff6b60; --p1:#feb600; --p2:#00aaeb; --p3:#8fa0ae;
-      --p0-fill:#ff5f56; --p1-fill:#feb600;
-      --info:#00aaeb;
+      --bg:#14151a; --surface:#1c1e25; --surface-2:#262935;
+      --fg:#eef0f5; --fg-2:#bcc2cf; --dim:#8b93a4;
+      --border:#2c303b; --border-strong:#3e4453; --card:#1c1e25;
+      --accent:#a690ff;
+      --p0:#ff7a8a; --p1:#f5b53d; --p2:#a690ff; --p3:#8b93a4;
+      --p0-fill:#ff5d73; --p1-fill:#f5a524;
+      --info:#a690ff;
       --shadow:0 1px 2px rgba(0,0,0,.35);
     }
   }
   :root[data-theme="dark"]{
-    --bg:#111a23; --surface:#19232d; --surface-2:#22303c;
-    --fg:#eef3f8; --fg-2:#b4c3cd; --dim:#8fa0ae;
-    --border:#2b3945; --border-strong:#3d4f5e; --card:#19232d;
-    --accent:#00aaeb;
-    --p0:#ff6b60; --p1:#feb600; --p2:#00aaeb; --p3:#8fa0ae;
-    --p0-fill:#ff5f56; --p1-fill:#feb600;
-    --info:#00aaeb;
+    --bg:#14151a; --surface:#1c1e25; --surface-2:#262935;
+    --fg:#eef0f5; --fg-2:#bcc2cf; --dim:#8b93a4;
+    --border:#2c303b; --border-strong:#3e4453; --card:#1c1e25;
+    --accent:#a690ff;
+    --p0:#ff7a8a; --p1:#f5b53d; --p2:#a690ff; --p3:#8b93a4;
+    --p0-fill:#ff5d73; --p1-fill:#f5a524;
+    --info:#a690ff;
     --shadow:0 1px 2px rgba(0,0,0,.35);
   }
 
@@ -86,11 +91,17 @@
   .masthead{border-bottom:1px solid var(--border);background:var(--surface);margin-bottom:1.8rem}
   .masthead-in{max-width:1280px;margin:0 auto;padding:1rem 1.5rem;
     display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
-  .masthead .logo{height:22px;width:auto;flex:none}
-  .masthead .divider{width:1px;height:20px;background:var(--border-strong)}
-  .masthead .product{font:600 13px/1 "Montserrat","Inter",sans-serif;letter-spacing:.02em;color:var(--fg)}
-  .masthead .product span{display:block;font:400 10.5px/1.4 "IBM Plex Mono",monospace;
-    color:var(--dim);letter-spacing:.02em;margin-top:3px}
+  .brand{display:flex;align-items:center;gap:.55rem}
+  .masthead .mark{height:24px;width:24px;flex:none;color:var(--accent)}
+  /* The name is set in two weights rather than two colours alone: at the size a masthead
+     wordmark runs, a hue shift is the first thing lost to a low-quality projector or a
+     monochrome print, and the lockup should still read as one word either way. */
+  .wordmark{font:700 17px/1 "Montserrat","Inter",sans-serif;letter-spacing:-.015em;
+    color:var(--fg);white-space:nowrap}
+  .wordmark b{color:var(--accent)}
+  .masthead .divider{width:1px;height:22px;background:var(--border-strong)}
+  .masthead .product{font:400 11px/1.4 "IBM Plex Mono",monospace;letter-spacing:.02em;
+    color:var(--dim)}
 
   .masthead-link{
     margin-left:auto;font-size:.82rem;font-weight:600;color:var(--accent);text-decoration:none;
@@ -237,9 +248,12 @@
 
 <header class="masthead">
   <div class="masthead-in">
-    <svg class="logo" viewBox="0 0 32 32" role="img" aria-label="sitesnitch"><use href="#app-mark"/></svg>
+    <span class="brand">
+      <svg class="mark" viewBox="0 0 32 32" role="img" aria-label="sitesnitch"><use href="#app-mark"/></svg>
+      <span class="wordmark" aria-hidden="true">site<b>snitch</b></span>
+    </span>
     <span class="divider"></span>
-    <span class="product">sitesnitch<span>crawl reports</span></span>
+    <span class="product">crawl reports</span>
   </div>
 </header>
 
