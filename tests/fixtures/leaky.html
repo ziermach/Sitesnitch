@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Leaky fixture page for the crawler</title>
+  <meta name="description" content="A deliberately broken page used to prove the forbidden-host check actually fires.">
+  <link rel="canonical" href="https://staging.example.com/en/leaky">
+  <script>
+    // Surface 4: a host sitting in a config blob, requested by nothing (yet).
+    window.APP_CONFIG = { apiBase: "https://dev.example.com/api/v1" };
+  </script>
+</head>
+<body>
+  <h1>Leaky fixture</h1>
+
+  <!-- Surface 1: the DOM. -->
+  <a href="https://staging.example.com/en/cart">Go to cart</a>
+  <img src="https://dev.example.com/logo.png" alt="Logo">
+
+  <script>
+    // Surface 2: a request the HTML never shows. This is the one a DOM-only crawler misses.
+    fetch("https://staging.example.com/api/price").catch(() => {});
+  </script>
+</body>
+</html>

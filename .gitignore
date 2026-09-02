@@ -1,0 +1,29 @@
+node_modules/
+
+# Build output. Published to npm from a clean `npm run build`, never committed — a stale
+# dist/ in the repo is a package that does not match its own source.
+dist/
+
+# Crawl output. Reports name every broken URL on the site they were run against, and often
+# its internal hostnames; they are the one thing in this project that must not be shared by
+# accident. Keep them local, or publish them somewhere access-controlled.
+reports/
+
+# A user's own configuration points at their site. The example is committed; the real one
+# is not.
+sitesnitch.config.ts
+sitesnitch.config.js
+sitesnitch.config.mjs
+
+# Local env / secrets — never commit these.
+.env
+.env.*
+!.env.example
+
+*.log
+*.tsbuildinfo
+coverage/
+
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,71 @@
+{
+  "name": "sitesnitch",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Crawls your site in a real browser and reports what it is leaking, breaking and getting wrong: staging/dev host leaks, dead links, console errors, accessibility violations, broken SEO metadata.",
+  "keywords": [
+    "crawler",
+    "qa",
+    "seo",
+    "accessibility",
+    "axe-core",
+    "broken-links",
+    "playwright",
+    "site-audit"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "sitesnitch": "./dist/cli.js",
+    "sitesnitch-report": "./scripts/serve-report.mjs"
+  },
+  "files": [
+    "dist",
+    "scripts/serve-report.mjs",
+    "viewer",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "crawl": "node --max-old-space-size=8192 --import tsx src/cli.ts",
+    "report": "node scripts/serve-report.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && tsc --noEmit",
+    "lint:fix": "eslint . --fix",
+    "check": "npm run lint && npm test",
+    "prepublishOnly": "npm run check && npm run build",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "axe-core": "^4.12.1",
+    "playwright": "^1.49.0",
+    "undici": "^8.7.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.17.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "esbuild@0.21.5": true
+  }
+}

@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crawl report</title>
+<!--
+  A static viewer, committed as source. It reads report.json at runtime rather than having
+  the data baked into it.
+
+  Why not generate the HTML with the issues inlined? Because that made the data live in two
+  places and produced a 12 MB artifact per run. The report is a *view*; report.json is the
+  truth. This file gets code-reviewed and versioned like the rest of the source, and any
+  run's JSON can be dropped into it.
+
+  The wrinkle: opened as file://, a page cannot fetch() a sibling file — the browser treats
+  file:// as an opaque origin and blocks it. A fetch-only viewer would therefore show an
+  empty page to anyone who simply double-clicks it, which is how most people will open it.
+  So: fetch when served over http (npm run report), and a drop zone / file picker when not.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /*
+    A neutral palette: a blue accent, a red/amber/blue/grey status ramp, Montserrat over
+    Inter. Swap the custom properties below for your own design tokens if you want the
+    report to read as part of your system — but re-check the contrast notes when you do.
+
+    Two values are derived rather than used raw. The amber (#feb600) scores 1.72:1 on a
+    light surface, so P1 *text* uses a darkened step and only fills use the raw value; the
+    green is lightened for the dark ground.
+
+    Priority colour is a STATUS scale, not a categorical one: P0 red, P1 amber, P2 brand
+    blue, P3 recessive grey. Red and amber are close under deuteranopia (best achievable
+    separation here is dE 6.6), which is why every priority element also carries its literal
+    label -- the chips, the pills and the group badges all say "P0"/"P1"/"P2"/"P3". Identity
+    never rests on colour alone. Do not remove those labels.
+  */
+  :root{
+    --bg:#f4f5f8;
+    --surface:#fff;
+    --surface-2:#e8f1ff;
+    --fg:#19232d;
+    --fg-2:#323c46;
+    --dim:#5a6473;
+    --border:#dbe3ea;
+    --border-strong:#b4c3cd;
+    --card:#fff;
+    --accent:#0a78c3;
+    --p0:#b3121a; --p1:#9a6a00; --p2:#0a78c3; --p3:#55636f;
+    --p0-fill:#d71919; --p1-fill:#feb600;
+    --info:#0a78c3;
+    --shadow:0 1px 2px rgba(25,35,45,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#111a23; --surface:#19232d; --surface-2:#22303c;
+      --fg:#eef3f8; --fg-2:#b4c3cd; --dim:#8fa0ae;
+      --border:#2b3945; --border-strong:#3d4f5e; --card:#19232d;
+      --accent:#00aaeb;
+      --p0:#ff6b60; --p1:#feb600; --p2:#00aaeb; --p3:#8fa0ae;
+      --p0-fill:#ff5f56; --p1-fill:#feb600;
+      --info:#00aaeb;
+      --shadow:0 1px 2px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#111a23; --surface:#19232d; --surface-2:#22303c;
+    --fg:#eef3f8; --fg-2:#b4c3cd; --dim:#8fa0ae;
+    --border:#2b3945; --border-strong:#3d4f5e; --card:#19232d;
+    --accent:#00aaeb;
+    --p0:#ff6b60; --p1:#feb600; --p2:#00aaeb; --p3:#8fa0ae;
+    --p0-fill:#ff5f56; --p1-fill:#feb600;
+    --info:#00aaeb;
+    --shadow:0 1px 2px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 0 4rem;background:var(--bg);color:var(--fg);
+    font:15px/1.55 "Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1280px;margin:0 auto;padding:0 1.5rem}
+
+  /* --- masthead ------------------------------------------------------------------- */
+  .masthead{border-bottom:1px solid var(--border);background:var(--surface);margin-bottom:1.8rem}
+  .masthead-in{max-width:1280px;margin:0 auto;padding:1rem 1.5rem;
+    display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+  .masthead .logo{height:22px;width:auto;flex:none}
+  .masthead .divider{width:1px;height:20px;background:var(--border-strong)}
+  .masthead .product{font:600 13px/1 "Montserrat","Inter",sans-serif;letter-spacing:.02em;color:var(--fg)}
+  .masthead .product span{display:block;font:400 10.5px/1.4 "IBM Plex Mono",monospace;
+    color:var(--dim);letter-spacing:.02em;margin-top:3px}
+
+  .masthead-link{
+    margin-left:auto;font-size:.82rem;font-weight:600;color:var(--accent);text-decoration:none;
+    border:1px solid var(--border-strong);border-radius:6px;padding:.32rem .8rem;white-space:nowrap;
+  }
+  .masthead-link:hover{border-color:var(--accent);text-decoration:none}
+
+  h1{font:700 1.5rem/1.15 "Montserrat","Inter",sans-serif;letter-spacing:-.02em;margin:0 0 .25rem}
+  .sub{color:var(--dim);margin-bottom:1.4rem;font-size:.9rem}
+
+  /* --- stat cards ----------------------------------------------------------------- */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-bottom:1.1rem}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:.8rem .95rem;
+    text-align:left;cursor:pointer;font:inherit;color:inherit;box-shadow:var(--shadow);
+    transition:border-color .12s,transform .12s}
+  .stat:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .stat:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .stat .n{font:700 1.75rem/1.1 "Montserrat","Inter",sans-serif;letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums}
+  .stat .l{font-size:.72rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)}
+  .stat .s{font-size:.72rem;color:var(--dim)}
+  .stat.p-P0 .n,.stat.p-P0 .l{color:var(--p0)}
+  .stat.p-P1 .n,.stat.p-P1 .l{color:var(--p1)}
+  .stat.p-P2 .n,.stat.p-P2 .l{color:var(--p2)}
+  .stat.p-P3 .n,.stat.p-P3 .l{color:var(--p3)}
+
+  .meta{display:flex;gap:1.3rem;flex-wrap:wrap;color:var(--dim);font-size:.85rem;margin-bottom:1.3rem}
+  .meta b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+
+  /* --- filters -------------------------------------------------------------------- */
+  .filters{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--border);
+    padding:.8rem 0 .85rem;margin-bottom:1.1rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+  .chip{border:1px solid var(--border-strong);background:var(--surface);color:var(--fg-2);border-radius:6px;
+    padding:.32rem .8rem;font-size:.8rem;cursor:pointer;font-weight:600;letter-spacing:.02em;
+    transition:border-color .12s,background .12s}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .chip.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+  .chip.p-P0.on{background:var(--p0-fill);border-color:var(--p0-fill);color:#fff}
+  .chip.p-P1.on{background:var(--p1-fill);border-color:var(--p1-fill);color:#19232d}
+  .chip.p-P2.on{background:var(--p2);border-color:var(--p2);color:#fff}
+  .chip.p-P3.on{background:var(--p3);border-color:var(--p3);color:#fff}
+  select,input[type=search]{border:1px solid var(--border-strong);background:var(--surface);color:var(--fg);
+    border-radius:6px;padding:.36rem .6rem;font:inherit;font-size:.85rem}
+  select:focus-visible,input[type=search]:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  input[type=search]{min-width:240px;flex:1}
+  .sep{width:1px;height:22px;background:var(--border-strong)}
+  .count{margin-left:auto;color:var(--dim);font-size:.82rem;white-space:nowrap;
+    font-variant-numeric:tabular-nums}
+
+  /* --- finding groups ------------------------------------------------------------- */
+  .group{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--border-strong);
+    border-radius:6px;margin-bottom:.55rem;overflow:hidden;box-shadow:var(--shadow)}
+  .group[data-priority="P0"]{border-left-color:var(--p0-fill)}
+  .group[data-priority="P1"]{border-left-color:var(--p1-fill)}
+  .group[data-priority="P2"]{border-left-color:var(--p2)}
+  .group[data-priority="P3"]{border-left-color:var(--p3)}
+  summary{cursor:pointer;padding:.72rem .9rem;display:flex;align-items:center;gap:.6rem;
+    user-select:none;list-style:none;flex-wrap:wrap}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸";color:var(--dim);font-size:.8rem}
+  summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .group[open] summary::before{content:"▾"}
+  .pri{font:700 .68rem/1 "Montserrat","Inter",sans-serif;padding:.22rem .42rem;border-radius:3px;
+    border:1px solid currentColor;letter-spacing:.03em}
+  .group[data-priority="P0"] .pri{color:var(--p0)}
+  .group[data-priority="P1"] .pri{color:var(--p1)}
+  .group[data-priority="P2"] .pri{color:var(--p2)}
+  .group[data-priority="P3"] .pri{color:var(--p3)}
+  .rule{font-weight:500;font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:.86rem;color:var(--fg)}
+  .cat{font-size:.72rem;color:var(--dim);background:var(--bg);border:1px solid var(--border);
+    border-radius:4px;padding:.1rem .5rem;letter-spacing:.02em}
+  .n-badge{margin-left:auto;background:var(--bg);border:1px solid var(--border);border-radius:4px;
+    padding:.1rem .55rem;font-size:.8rem;font-variant-numeric:tabular-nums;font-weight:600}
+  .why{padding:0 .9rem .65rem 2rem;color:var(--dim);font-size:.83rem;margin-top:-.3rem}
+
+  /* --- table ---------------------------------------------------------------------- */
+  .tbl{overflow-x:auto}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:.5rem .9rem;border-top:1px solid var(--border);vertical-align:top;font-size:.83rem}
+  th{color:var(--dim);font-size:.68rem;text-transform:uppercase;letter-spacing:.09em;font-weight:600}
+  td.msg{min-width:230px}
+  tbody tr:hover{background:var(--surface-2)}
+  a{color:var(--info);text-decoration:none;word-break:break-all}
+  a:hover{text-decoration:underline}
+  td a{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.78rem}
+  pre{margin:0;white-space:pre-wrap;word-break:break-all;font-size:.74rem;color:var(--dim);
+    max-height:5rem;overflow:auto;font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+  .more{width:100%;border:0;border-top:1px solid var(--border);background:transparent;color:var(--info);
+    padding:.6rem;font:inherit;font-size:.82rem;font-weight:600;cursor:pointer}
+  .more:hover{background:var(--surface-2)}
+  .empty{text-align:center;padding:3rem;color:var(--dim)}
+  .hidden{display:none!important}
+  .back{border:1px solid var(--border-strong);background:var(--surface);color:var(--dim);border-radius:6px;
+    padding:.32rem .7rem;font:inherit;font-size:.82rem;font-weight:600;cursor:pointer;margin-bottom:1rem}
+  .back:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* --- run index ------------------------------------------------------------------ */
+  .run{display:flex;align-items:center;gap:1rem;width:100%;text-align:left;font:inherit;color:inherit;
+    background:var(--card);border:1px solid var(--border);border-radius:8px;padding:.95rem 1.1rem;
+    margin-bottom:.6rem;cursor:pointer;flex-wrap:wrap;box-shadow:var(--shadow);
+    transition:border-color .12s,transform .12s}
+  .run:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .run:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .run-name{font:600 1rem/1.2 "Montserrat","Inter",sans-serif;min-width:110px;letter-spacing:-.01em}
+  .run-meta{color:var(--dim);font-size:.83rem;flex:1;min-width:220px;font-variant-numeric:tabular-nums}
+  .run-pri{display:flex;gap:.35rem;flex-wrap:wrap}
+  .pill{border:1px solid currentColor;border-radius:4px;padding:.1rem .5rem;font-size:.74rem;
+    font-weight:700;font-variant-numeric:tabular-nums;font-family:"Montserrat","Inter",sans-serif}
+  .pill.P0{color:var(--p0)} .pill.P1{color:var(--p1)}
+  .pill.P2{color:var(--p2)} .pill.P3{color:var(--p3)}
+  .pill.zero{color:var(--dim);opacity:.45}
+
+  /* --- drop zone ------------------------------------------------------------------ */
+  #drop{border:1px dashed var(--border-strong);border-radius:10px;padding:2rem;background:var(--card);
+    transition:border-color .15s;text-align:center;margin-top:2rem}
+  #drop.over{border-color:var(--accent);background:var(--surface-2)}
+  #drop h2{margin:0 0 .5rem;font:600 1rem/1.2 "Montserrat","Inter",sans-serif}
+  #drop p{color:var(--dim);font-size:.9rem;margin:.4rem 0}
+  #drop code{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:.1rem .35rem;
+    font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.82rem}
+  #pick{margin-top:1rem;border:1px solid var(--accent);background:var(--accent);color:#fff;
+    border-radius:6px;padding:.5rem 1rem;font:inherit;font-weight:600;cursor:pointer}
+  #pick:hover{filter:brightness(1.08)}
+  #pick:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .err{color:var(--p0);margin-top:1rem;font-size:.88rem}
+</style>
+</head>
+<body>
+
+<!--
+  The mark is inlined rather than linked. This file is copied verbatim to the reports root
+  after every crawl, and it is routinely opened over file:// with no server and no network,
+  where an external asset reference is just a broken image.
+-->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="app-mark" viewBox="0 0 32 32">
+    <circle cx="13" cy="13" r="8.5" fill="none" stroke="currentColor" stroke-width="2.6"/>
+    <path d="M19.4 19.4 L27.5 27.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+    <circle cx="13" cy="13" r="2.6" fill="currentColor"/>
+  </symbol>
+</svg>
+
+<header class="masthead">
+  <div class="masthead-in">
+    <svg class="logo" viewBox="0 0 32 32" role="img" aria-label="sitesnitch"><use href="#app-mark"/></svg>
+    <span class="divider"></span>
+    <span class="product">sitesnitch<span>crawl reports</span></span>
+  </div>
+</header>
+
+<!-- Screen 1: the index of runs. -->
+<div class="wrap hidden" id="index">
+  <h1>Crawl reports</h1>
+  <div class="sub" id="index-sub">Pick a run.</div>
+  <div id="runs"></div>
+
+  <div id="drop">
+    <h2>Or load a report.json directly</h2>
+    <p>Drop one here, or pick it below.</p>
+    <input type="file" id="file" accept="application/json,.json" hidden>
+    <button id="pick">Choose report.json…</button>
+    <div class="err hidden" id="err"></div>
+  </div>
+</div>
+
+<!-- Screen 2: one run's findings. -->
+<div class="wrap hidden" id="app">
+  <button class="back" id="back">← All reports</button>
+  <h1 id="title">Crawl report</h1>
+  <div class="sub" id="sub"></div>
+  <div class="stats" id="cards"></div>
+  <div class="meta" id="meta"></div>
+
+  <div class="filters">
+    <button class="chip p-P0" data-pri="P0">P0</button>
+    <button class="chip p-P1" data-pri="P1">P1</button>
+    <button class="chip p-P2" data-pri="P2">P2</button>
+    <button class="chip p-P3" data-pri="P3">P3</button>
+    <span class="sep"></span>
+    <select id="cat"><option value="">All categories</option></select>
+    <select id="sev">
+      <option value="">All severities</option>
+      <option value="error">Errors</option>
+      <option value="warning">Warnings</option>
+      <option value="info">Info</option>
+    </select>
+    <input type="search" id="q" placeholder="Filter by rule, URL, message…">
+    <button class="chip" id="clear">Reset</button>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div id="groups"></div>
+</div>
+
+<script type="module">
+import { RULE_META, PRIORITY_ORDER, PRIORITY_LABEL, CATEGORY_LABEL, classify } from './classify.js';
+
+const PAGE = 200;
+const MAX_DETAIL = 400;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; };
+const short = (u) => u.length > 66 ? u.slice(0, 63) + '…' : u;
+
+// ---- loading ---------------------------------------------------------------------------
+
+const fmtDate = (iso) => new Date(iso).toLocaleString();
+const fmtMin = (ms) => Math.max(1, Math.round(ms / 60000)) + ' min';
+
+/**
+ * Two screens, one file: the index of runs, and one run's findings.
+ *
+ * The run is kept in the URL hash (#main, #blog) so a report is linkable — "the P0s in the
+ * blog run" should be something you can paste into a ticket, not a sequence of clicks you
+ * have to describe.
+ */
+async function boot() {
+  window.addEventListener('hashchange', route);
+  await route();
+}
+
+async function route() {
+  const run = decodeURIComponent(location.hash.replace(/^#/, ''));
+  if (run) {
+    try {
+      const res = await fetch(`${encodeURIComponent(run)}/report.json`);
+      if (res.ok) return render(await res.json(), run);
+    } catch { /* fall through to the index */ }
+  }
+  await showIndex();
+}
+
+async function showIndex() {
+  $('app').classList.add('hidden');
+  $('index').classList.remove('hidden');
+
+  let runs = [];
+  try {
+    // Over file:// this fetch is blocked by the opaque-origin rule — expected, and the drop
+    // zone below covers it. Over http (npm run report) the index just appears.
+    const res = await fetch('index.json');
+    if (res.ok) runs = (await res.json()).runs ?? [];
+  } catch { /* file:// */ }
+
+  const list = $('runs');
+
+  if (!runs.length) {
+    list.innerHTML = '';
+    $('index-sub').textContent =
+      'No runs found here. Serve this directory with `npm run report`, or drop a report.json below.';
+    return;
+  }
+
+  $('index-sub').textContent = `${runs.length} run${runs.length === 1 ? '' : 's'}.`;
+  list.innerHTML = runs.map((r) => `
+    <button class="run" data-run="${esc(r.name)}">
+      <span class="run-name">${esc(r.name)}</span>
+      <span class="run-meta">
+        ${esc(r.baseUrl)} · ${esc(fmtDate(r.startedAt))} · ${esc(fmtMin(r.durationMs))}<br>
+        ${r.pagesCrawled.toLocaleString()} pages · ${r.linksChecked.toLocaleString()} links ·
+        ${r.issues.toLocaleString()} issues
+      </span>
+      <span class="run-pri">
+        ${PRIORITY_ORDER.map((p) => {
+          const n = r.byPriority?.[p] ?? 0;
+          return `<span class="pill ${p}${n === 0 ? ' zero' : ''}">${p} ${n.toLocaleString()}</span>`;
+        }).join('')}
+      </span>
+    </button>`).join('');
+
+  list.querySelectorAll('.run').forEach((el) =>
+    el.addEventListener('click', () => { location.hash = encodeURIComponent(el.dataset.run); }),
+  );
+}
+
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      render(JSON.parse(reader.result), file.name);
+    } catch (e) {
+      const err = $('err');
+      err.textContent = 'That does not look like a crawl report.json: ' + e.message;
+      err.classList.remove('hidden');
+    }
+  };
+  reader.readAsText(file);
+}
+
+$('back').addEventListener('click', () => { location.hash = ''; showIndex(); });
+
+$('pick').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', (e) => { if (e.target.files[0]) readFile(e.target.files[0]); });
+
+const drop = $('drop');
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+});
+
+// ---- rendering -------------------------------------------------------------------------
+
+function render(report, runName) {
+  $('index').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  $('title').textContent = runName ? `Crawl report — ${runName}` : 'Crawl report';
+
+  const issues = [
+    ...report.pages.flatMap((p) => p.issues),
+    ...(report.globalIssues ?? []),
+  ].map((i) => ({ ...i, ...classify(i.rule) }));
+
+  // Group by rule, rows as arrays — the DOM, not the data, is what makes a 60k-issue report
+  // slow, so rows are only materialised when a group is opened.
+  const groups = new Map();
+  for (const i of issues) {
+    let g = groups.get(i.rule);
+    if (!g) {
+      g = { rule: i.rule, priority: i.priority, category: i.category, severity: i.severity,
+            rationale: i.rationale, rows: [], hay: [] };
+      groups.set(i.rule, g);
+    }
+    g.rows.push([i.message, i.pageUrl, i.target ?? '', i.where ?? '', (i.detail ?? '').slice(0, MAX_DETAIL)]);
+  }
+
+  const all = [...groups.values()].sort((a, b) => {
+    const p = PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority);
+    return p !== 0 ? p : b.rows.length - a.rows.length;
+  });
+
+  for (const g of all) {
+    g.hay = g.rows.map((r) => (r[0] + ' ' + r[1] + ' ' + r[2]).toLowerCase());
+    g.ruleHay = (g.rule + ' ' + g.category).toLowerCase();
+  }
+
+  $('sub').textContent = `${report.baseUrl} · ${new Date(report.startedAt).toLocaleString()} · ` +
+                         `${Math.round(report.durationMs / 60000)} min`;
+
+  const byPriority = Object.fromEntries(
+    PRIORITY_ORDER.map((p) => [p, issues.filter((i) => i.priority === p).length]),
+  );
+
+  $('cards').innerHTML = PRIORITY_ORDER.map((p) => `
+    <button class="stat p-${p}" data-jump="${p}">
+      <div class="n">${(byPriority[p] ?? 0).toLocaleString()}</div>
+      <div class="l">${p}</div>
+      <div class="s">${esc(PRIORITY_LABEL[p].split('—')[1]?.trim() ?? '')}</div>
+    </button>`).join('');
+
+  $('meta').innerHTML = [
+    [report.pagesCrawled, 'pages crawled'],
+    [report.linksChecked, 'unique links checked'],
+    [issues.length, 'issues total'],
+    [report.counts.error, 'errors'],
+    [report.counts.warning, 'warnings'],
+    [report.counts.info, 'info'],
+  ].map(([n, l]) => `<span><b>${Number(n).toLocaleString()}</b> ${l}</span>`).join('');
+
+  const cats = [...new Set(all.map((g) => g.category))];
+  $('cat').innerHTML = '<option value="">All categories</option>' +
+    cats.map((c) => `<option value="${esc(c)}">${esc(CATEGORY_LABEL[c] ?? c)}</option>`).join('');
+
+  wireFilters(all);
+}
+
+function rowHtml(r) {
+  const [msg, page, target, where, detail] = r;
+  return '<tr>' +
+    `<td class="msg">${esc(msg)}</td>` +
+    `<td><a href="${esc(page)}" target="_blank" rel="noreferrer">${esc(short(page))}</a></td>` +
+    `<td>${target ? `<a href="${esc(target)}" target="_blank" rel="noreferrer">${esc(short(target))}</a>`
+                  : '<span style="color:var(--dim)">—</span>'}</td>` +
+    `<td style="color:var(--dim)">${esc(where)}</td>` +
+    `<td>${detail ? `<pre>${esc(detail)}</pre>` : ''}</td>` +
+  '</tr>';
+}
+
+function fillRows(el, rows) {
+  const tbody = el.querySelector('tbody');
+  const shown = Number(el.dataset.shown || 0);
+  const next = rows.slice(shown, shown + PAGE);
+  tbody.insertAdjacentHTML('beforeend', next.map(rowHtml).join(''));
+  el.dataset.shown = String(shown + next.length);
+
+  const more = el.querySelector('.more');
+  const left = rows.length - Number(el.dataset.shown);
+  if (left > 0) {
+    more.classList.remove('hidden');
+    more.textContent = `Show ${Math.min(PAGE, left).toLocaleString()} more (${left.toLocaleString()} remaining)`;
+  } else {
+    more.classList.add('hidden');
+  }
+}
+
+function wireFilters(all) {
+  const root = $('groups'), countEl = $('count'), q = $('q'), cat = $('cat'), sev = $('sev');
+  const chips = [...document.querySelectorAll('.chip[data-pri]')];
+  const activePri = new Set();
+
+  function matching(g, term) {
+    if (!term) return g.rows;
+    if (g.ruleHay.includes(term)) return g.rows;
+    return g.rows.filter((_, i) => g.hay[i].includes(term));
+  }
+
+  function draw() {
+    const term = q.value.trim().toLowerCase();
+    root.textContent = '';
+    const frag = document.createDocumentFragment();
+    let nGroups = 0, nIssues = 0;
+
+    for (const g of all) {
+      if (activePri.size && !activePri.has(g.priority)) continue;
+      if (cat.value && g.category !== cat.value) continue;
+      if (sev.value && g.severity !== sev.value) continue;
+
+      const rows = matching(g, term);
+      if (!rows.length) continue;
+      nGroups++; nIssues += rows.length;
+
+      const el = document.createElement('details');
+      el.className = 'group';
+      el.dataset.priority = g.priority;
+      if (g.priority === 'P0') el.open = true;
+      el.innerHTML =
+        '<summary>' +
+          `<span class="pri">${g.priority}</span>` +
+          `<span class="rule">${esc(g.rule)}</span>` +
+          `<span class="cat">${esc(CATEGORY_LABEL[g.category] ?? g.category)}</span>` +
+          `<span class="n-badge">${rows.length.toLocaleString()}` +
+            (rows.length !== g.rows.length ? ` / ${g.rows.length.toLocaleString()}` : '') +
+          '</span>' +
+        '</summary>' +
+        `<div class="why">${esc(g.rationale)}</div>` +
+        '<div class="tbl"><table>' +
+          '<thead><tr><th>Message</th><th>Page</th><th>Target</th><th>Where</th><th>Detail</th></tr></thead>' +
+          '<tbody></tbody></table></div>' +
+        '<button class="more hidden"></button>';
+
+      const fill = () => { if (!el.dataset.shown) fillRows(el, rows); };
+      el.addEventListener('toggle', () => { if (el.open) fill(); });
+      el.querySelector('.more').addEventListener('click', () => fillRows(el, rows));
+      frag.appendChild(el);
+      if (el.open) queueMicrotask(fill);
+    }
+
+    root.appendChild(frag);
+    if (!nGroups) root.innerHTML = '<div class="empty">No issues match these filters.</div>';
+    countEl.textContent = `${nGroups} rule${nGroups === 1 ? '' : 's'} · ${nIssues.toLocaleString()} issues`;
+  }
+
+  chips.forEach((c) => c.addEventListener('click', () => {
+    const p = c.dataset.pri;
+    activePri.has(p) ? (activePri.delete(p), c.classList.remove('on'))
+                     : (activePri.add(p), c.classList.add('on'));
+    draw();
+  }));
+
+  document.querySelectorAll('.stat[data-jump]').forEach((s) => s.addEventListener('click', () => {
+    activePri.clear();
+    chips.forEach((c) => c.classList.remove('on'));
+    activePri.add(s.dataset.jump);
+    chips.find((c) => c.dataset.pri === s.dataset.jump)?.classList.add('on');
+    draw();
+    root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+
+  let t;
+  q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(draw, 150); });
+  cat.addEventListener('change', draw);
+  sev.addEventListener('change', draw);
+  $('clear').addEventListener('click', () => {
+    activePri.clear();
+    chips.forEach((c) => c.classList.remove('on'));
+    cat.value = ''; sev.value = ''; q.value = '';
+    draw();
+  });
+
+  draw();
+}
+
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # The postinstall pulls Chromium (~150 MB). Cached across runs, keyed on the lockfile,
+      # because tests/fixture.e2e.test.ts drives a real browser — the suite cannot be run
+      # without one, and running it without one is exactly the "everything passed, nothing
+      # was measured" outcome this project exists to prevent.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npm ci
+
+      # Chromium needs its system libraries even when the browser itself came from cache.
+      - run: npx playwright install-deps chromium
+
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build

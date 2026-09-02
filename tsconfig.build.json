@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // The published package is plain JS that plain Node can run, so imports must resolve
+    // the way Node resolves them — the "bundler" resolution used for development would let
+    // extensionless imports through and produce a dist that only a bundler can load.
+    "moduleResolution": "NodeNext",
+    "module": "NodeNext",
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}
