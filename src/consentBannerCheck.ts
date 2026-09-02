@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launchChromium } from './browser.js';
 import type { ResolvedConfig } from './config.js';
 import { isBannerVisible } from './consent.js';
 import type { Issue } from './types.js';
@@ -23,7 +23,7 @@ export async function runConsentBannerCheck(config: ResolvedConfig): Promise<Iss
   if (routes.length === 0) return [];
 
   const issues: Issue[] = [];
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchChromium();
 
   try {
     for (const url of routes) {

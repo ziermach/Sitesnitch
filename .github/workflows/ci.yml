@@ -39,8 +39,11 @@ jobs:
 
       - run: npm ci
 
-      # Chromium needs its system libraries even when the browser itself came from cache.
-      - run: npx playwright install-deps chromium
+      # Installs the browser AND its system libraries. This package has no postinstall
+      # hook — it does not download a browser on behalf of every consumer — so CI has to
+      # ask for one explicitly. `--with-deps` is required on a bare runner image even when
+      # the browser itself came from the cache above.
+      - run: npx playwright install --with-deps chromium
 
       # Fails the job if any dependency's own `engines` is stricter than what we advertise.
       # A mismatch here is what broke CI before: undici requires >=22.19.0 while this

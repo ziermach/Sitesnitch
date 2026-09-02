@@ -48,6 +48,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "setup": "playwright install chromium",
     "crawl": "node --max-old-space-size=8192 --import tsx src/cli.ts",
     "report": "node scripts/serve-report.mjs",
     "test": "vitest run",
@@ -56,8 +57,7 @@
     "lint": "eslint . && tsc --noEmit",
     "lint:fix": "eslint . --fix",
     "check": "npm run lint && npm test",
-    "prepublishOnly": "npm run check && npm run build",
-    "postinstall": "playwright install chromium"
+    "prepublishOnly": "npm run check && npm run build"
   },
   "dependencies": {
     "axe-core": "^4.12.1",

@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
-import { chromium, type Browser, type BrowserContext, type Page, type Response } from 'playwright';
+import { type Browser, type BrowserContext, type Page, type Response } from 'playwright';
+import { launchChromium } from './browser.js';
 import type { ResolvedConfig } from './config.js';
 import { dismissConsent, seedConsent } from './consent.js';
 import type { Frontier } from './frontier.js';
@@ -36,7 +37,7 @@ export class Crawler {
   ) {}
 
   async run(hooks: CrawlHooks): Promise<void> {
-    this.browser = await chromium.launch({ headless: true });
+    this.browser = await launchChromium();
 
     try {
       const workers = Array.from({ length: this.config.concurrency }, (_, i) =>

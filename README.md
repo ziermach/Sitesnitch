@@ -68,9 +68,21 @@ or a redirect hop as through markup.
 
 ```bash
 npm install --save-dev sitesnitch
+npx playwright install chromium
 ```
 
-Node 22.19+. The postinstall downloads Chromium via Playwright (~150 MB).
+Node 22.19+.
+
+The second command is not optional — sitesnitch drives a real browser. It is a separate
+step on purpose: a postinstall hook would download ~150 MB for everyone who so much as
+depends on this package, including CI jobs that never run a crawl. If you skip it, the
+first crawl tells you exactly this and stops.
+
+On a bare CI image, add the system libraries too:
+
+```bash
+npx playwright install --with-deps chromium
+```
 
 ## Command line
 
@@ -442,7 +454,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-      - run: npx playwright install-deps chromium
+      - run: npx playwright install --with-deps chromium
       - run: npx sitesnitch --only forbidden-hosts --fail-on error
       - uses: actions/upload-artifact@v4
         if: always()
@@ -514,7 +526,8 @@ will do on all 3,000 pages, not just the one you're looking at.
 
 ```bash
 npm install
-npm test          # 125 tests, ~3s
+npm run setup     # downloads Chromium; the test suite drives a real browser
+npm test          # 128 tests, ~3s
 npm run lint      # eslint (type-aware) + tsc --noEmit
 npm run check     # both — run this before committing
 npm run build     # emit dist/
