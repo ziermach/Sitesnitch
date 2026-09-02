@@ -5,10 +5,7 @@
 [![npm](https://img.shields.io/npm/v/sitesnitch.svg)](https://www.npmjs.com/package/sitesnitch)
 [![node](https://img.shields.io/node/v/sitesnitch.svg)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/sitesnitch.svg)](LICENSE)
-
-<!-- After creating the GitHub repo, add the CI badge:
-[![CI](https://github.com/OWNER/sitesnitch/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/sitesnitch/actions/workflows/ci.yml)
--->
+[![CI](https://github.com/ziermach/sitesnitch/actions/workflows/ci.yml/badge.svg)](https://github.com/ziermach/sitesnitch/actions/workflows/ci.yml)
 
 ```bash
 npx sitesnitch --url https://example.com --forbidden-hosts 'staging.example.com,*.internal.example.com'

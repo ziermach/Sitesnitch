@@ -341,7 +341,7 @@ export const DEFAULT_CONFIG: CrawlerConfig = {
   outDir: 'reports',
   runName: '',
   userAgent:
-    'SiteSnitch/0.1 (+https://github.com/sitesnitch/sitesnitch; Playwright) Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'SiteSnitch/0.1 (+https://github.com/ziermach/sitesnitch; Playwright) Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 
   seo: {
     titleMin: 10,
