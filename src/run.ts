@@ -329,7 +329,7 @@ function filterIssues(issues: Issue[], config: ResolvedConfig): Issue[] {
  * is exactly what the cross-page pass still needs: the page's identity, and the metadata
  * it compares across pages (title, description, hreflang).
  */
-function slim(ctx: PageContext): PageContext {
+export function slim(ctx: PageContext): PageContext {
   return {
     ...ctx,
     requestUrls: [],

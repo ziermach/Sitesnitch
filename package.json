@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/ziermach/Sitesnitch#readme",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

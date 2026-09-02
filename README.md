@@ -70,7 +70,7 @@ or a redirect hop as through markup.
 npm install --save-dev sitesnitch
 ```
 
-Node 20+. The postinstall downloads Chromium via Playwright (~150 MB).
+Node 22.19+. The postinstall downloads Chromium via Playwright (~150 MB).
 
 ## Command line
 
@@ -514,12 +514,16 @@ will do on all 3,000 pages, not just the one you're looking at.
 
 ```bash
 npm install
-npm test          # 115 tests, ~3s
+npm test          # 125 tests, ~3s
 npm run lint      # eslint (type-aware) + tsc --noEmit
 npm run check     # both — run this before committing
 npm run build     # emit dist/
 npm run crawl -- --url https://example.com --max-pages 20   # run from source via tsx
 ```
+
+`tests/performance.test.ts` asserts on *work avoided* rather than on wall-clock — requests
+issued, objects retained, regexes compiled. A time threshold on a shared CI runner is a coin
+flip, and a suite that cries wolf gets its failures ignored.
 
 `tests/fixture.e2e.test.ts` is the important one. It serves a page that deliberately leaks
 staging hosts through every surface and drives the **real** crawler at it.

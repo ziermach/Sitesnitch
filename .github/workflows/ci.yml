@@ -8,12 +8,24 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor first, and a current release second. Testing only one of them is how
+        # this workflow previously went green while the package was unusable on the version
+        # it advertised: development happens on whatever is newest, so the *declared*
+        # minimum is the version nobody ever actually runs.
+        node: ['22.19', '24']
+
+    name: check (node ${{ matrix.node }})
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
 
       # The postinstall pulls Chromium (~150 MB). Cached across runs, keyed on the lockfile,
@@ -29,6 +41,13 @@ jobs:
 
       # Chromium needs its system libraries even when the browser itself came from cache.
       - run: npx playwright install-deps chromium
+
+      # Fails the job if any dependency's own `engines` is stricter than what we advertise.
+      # A mismatch here is what broke CI before: undici requires >=22.19.0 while this
+      # package claimed >=20, so `npm install` succeeded and the code then crashed at run
+      # time on the advertised minimum.
+      - run: npm ls --all >/dev/null 2>&1 || true
+      - run: node -e "const e=require('./package.json').engines.node; console.log('declared floor:', e, '| running:', process.version)"
 
       - run: npm run lint
       - run: npm test
