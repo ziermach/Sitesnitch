@@ -17,12 +17,12 @@
   "author": "Christian Ziermann",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ziermach/sitesnitch.git"
+    "url": "git+https://github.com/ziermach/Sitesnitch.git"
   },
   "bugs": {
-    "url": "https://github.com/ziermach/sitesnitch/issues"
+    "url": "https://github.com/ziermach/Sitesnitch/issues"
   },
-  "homepage": "https://github.com/ziermach/sitesnitch#readme",
+  "homepage": "https://github.com/ziermach/Sitesnitch#readme",
   "engines": {
     "node": ">=20"
   },
